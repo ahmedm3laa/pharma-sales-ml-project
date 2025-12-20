@@ -8,31 +8,31 @@ The analysis includes data cleaning, exploratory data analysis (EDA), time-serie
 
 # 📁 Dataset
 
-The dataset is sourced from Kaggle and contains daily pharmaceutical sales aggregated across selected drug categories classified under the Anatomical Therapeutic Chemical (ATC) system.
+The dataset is sourced from **Kaggle** and contains daily pharmaceutical sales aggregated across selected drug categories classified under the **Anatomical Therapeutic Chemical (ATC) system.**
 
-Time span: 2014–2019 (historical data)
+* Time span: 2014–2019 (historical data)
 
-Frequency: Daily
+* Frequency: Daily
 
-Target variable: Total daily sales
+* Target variable: **Total daily sales**
 
 Drug categories:
 
-M01AB – Anti-inflammatory (Acetic acid derivatives)
+* **M01AB** – Anti-inflammatory (Acetic acid derivatives)
 
-M01AE – Anti-inflammatory (Propionic acid derivatives)
+* **M01AE** – Anti-inflammatory (Propionic acid derivatives)
 
-N02BA – Analgesics (Salicylic acid derivatives)
+* **N02BA** – Analgesics (Salicylic acid derivatives)
 
-N02BE – Analgesics (Pyrazolones & Anilides)
+* **N02BE** – Analgesics (Pyrazolones & Anilides)
 
-N05B – Anxiolytics
+* **N05B** – Anxiolytics
 
-N05C – Hypnotics & sedatives
+* **N05C** – Hypnotics & sedatives
 
-R03 – Drugs for obstructive airway diseases
+* **R03** – Drugs for obstructive airway diseases
 
-R06 – Antihistamines
+* **R06** – Antihistamines
 
 Dataset link:
 🔗 https://www.kaggle.com/datasets/milanzdravkovic/pharma-sales-data
@@ -41,91 +41,89 @@ Dataset link:
 
 Key preprocessing steps include:
 
-Removing incorrectly generated columns
+* Removing incorrectly generated columns
 
-Creating a unified date variable
+* Creating a unified **date variable**
 
-Aggregating drug-level sales into total daily sales
+* Aggregating drug-level sales into **total daily sales**
 
-Identifying zero-sales days (pharmacy closure)
+* Identifying **zero-sales days** (pharmacy closure)
 
-Engineering time-based features (lags, rolling means, weekdays, months)
+* Engineering time-based features (lags, rolling means, weekdays, months)
 
 Exploratory analysis revealed:
 
-Strong weekly seasonality
+* Strong **weekly seasonality**
 
-Clear monthly patterns
+* Clear **monthly patterns**
 
-Stationary behavior confirmed using ADF and KPSS tests
+* Stationary behavior confirmed using **ADF and KPSS tests**
 
 # 🤖 Modeling Approach
 
 Multiple forecasting models were implemented and compared:
 
-Elastic Net Regression with lag and rolling features
+* **Elastic Net Regression** with lag and rolling features
 
-ARIMA (baseline time-series model)
+* **ARIMA** (baseline time-series model)
 
-ARIMAX with calendar-based regressors
+* **ARIMAX** with calendar-based regressors
 
-Prophet with weekly/yearly seasonality and closure indicators
+* **Prophet** with weekly/yearly seasonality and closure indicators
 
-Ensemble model combining ARIMAX and Prophet forecasts
+* **Ensemble model** combining ARIMAX and Prophet forecasts
 
 Model performance was evaluated using:
 
-RMSE
+* RMSE
 
-MAE
+* MAE
 
-MAPE
+* MAPE
 
 # 📈 Results
 
-Elastic Net achieved the best short-term accuracy
+* **Elastic Net** achieved the best short-term accuracy
 
-Prophet showed strong robustness for longer horizons
+* **Prophet** showed strong robustness for longer horizons
 
-Ensemble forecasting reduced model-specific bias
+* **Ensemble** forecasting reduced model-specific bias
 
-Plain ARIMA performed weakest due to lack of exogenous information
+* **Plain ARIMA** performed weakest due to lack of exogenous information
 
 Forecasts were generated at:
 
-Daily level (operational planning)
+* **Daily level** (operational planning)
 
-Weekly level (procurement planning)
+* **Weekly level** (procurement planning)
 
-Monthly level (strategic planning)
+* **Monthly level** (strategic planning)
 
 # 📄 Report
 
 The full analytical report (including methodology, results, and business insights) is available as a PDF:
 
-📎 Download the full report
+📎 [Download the full report](Reports/Pharmaceutical Sales Forecasting.pdf)
+
 
 # 🛠 Tools & Libraries
 
-R, tidyverse, ggplot2
+* R, tidyverse, ggplot2
 
-forecast, prophet, glmnet
+* forecast, prophet, glmnet
 
-lubridate, zoo, tseries, caret
+* lubridate, zoo, tseries, caret
 
 # 🚀 Future Work
 
-Category-level forecasting (Part 2)
+* Category-level forecasting (Part 2)
 
-Holiday calendars and external demand drivers
+* Holiday calendars and external demand drivers
 
-Probabilistic forecasting and uncertainty intervals
+* Probabilistic forecasting and uncertainty intervals
 
-Deployment as a decision-support dashboard
+* Deployment as a decision-support dashboard
 
 # 👤 Author
-## Ahmed M. Alaa
+## [Ahmed M. Alaa](https://www.linkedin.com/in/ahmedm3laa/)
 
-Ahmed M. Alaa
-Pharmacist transitioning into Data Science
-Focus: Healthcare & Pharmaceutical Analytics
