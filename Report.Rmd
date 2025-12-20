@@ -1,0 +1,1369 @@
+---
+title: '**Pharmaceutical Sales Forecasting and Planning**'
+author: "Ahmed M. Alaa"
+date: "December 2025"
+output:
+  pdf_document:
+    df_print: kable
+    toc: yes
+    fig_caption: yes
+  html_document: default
+fontsize: 11pt
+include-before: '`\newpage{}`{=latex}'
+urlcolor: blue
+---
+
+```{setup, include=FALSE,message=FALSE, warning=FALSE}
+
+knitr::opts_chunk$set(
+  knitr::opts_chunk$set(
+  fig.width = 7,
+  fig.height = 4,
+  out.width = "\\linewidth",
+  fig.align = "center"
+)
+```
+
+\newpage
+# **1 - Introduction**
+
+## **1.1 - Project overview**
+
+Accurate demand forecasting is a critical task in pharmaceutical operations, as it directly impacts inventory management, procurement planning, and service availability. Pharmacies must balance the risk of stockouts against excess inventory while accounting for strong seasonal patterns, weekly effects, and closure days. This project aims to analyze historical pharmaceutical sales data and develop reliable forecasting models to support short-term and long-term sales planning.
+
+The analysis is based on daily sales data aggregated across eight drug categories, with a primary focus on modeling and forecasting **total daily pharmaceutical sales**. The workflow includes data cleaning, exploratory data analysis, seasonality assessment, feature engineering, and the application of multiple predictive models. Several modeling approaches are evaluated, ranging from machine-learning models with lagged features to time-series models designed to capture temporal dependencies and calendar effects. Model performance is assessed using standard accuracy metrics, and an ensemble forecast is constructed to improve robustness.
+
+## **1.2 - About the Data source**
+
+The dataset used in this study originates from the **Pharmaceutical Sales Data** dataset publicly available on **Kaggle**, compiled by Milan Zdravković. The specific file utilized, `salesdaily.csv`, contains daily sales observations for eight pharmaceutical drug categories over multiple years, along with calendar information such as dates and weekdays. This real-world dataset enables a detailed examination of sales behavior, including weekly and monthly seasonality, holiday effects, and periods of zero sales corresponding to pharmacy closures. The dataset serves as the foundation for both the exploratory analysis and the forecasting models developed in this report. *(Zdravković ,2018)*
+
+### Drug Classification
+
+The dataset includes daily sales records for **57 individual pharmaceutical products**, which are aggregated into eight therapeutic groups based on the **Anatomical Therapeutic Chemical (ATC) Classification System**. Each group represents a clinically meaningful drug category, allowing sales patterns to be analyzed at a higher and more interpretable level. The eight ATC categories included in the dataset are:
+
+-   **M01AB** -- Anti-inflammatory and antirheumatic products (non-steroids), acetic acid derivatives and related substances
+
+-   **M01AE** -- Anti-inflammatory and antirheumatic products (non-steroids), propionic acid derivatives
+
+-   **N02BA** -- Other analgesics and antipyretics, salicylic acid and derivatives
+
+-   **N02BE/B** -- Other analgesics and antipyretics, pyrazolones and anilides
+
+-   **N05B** -- Psycholeptics, anxiolytic drugs
+
+-   **N05C** -- Psycholeptics, hypnotics and sedatives
+
+-   **R03** -- Drugs for obstructive airway diseases
+
+-   **R06** -- Antihistamines for systemic use
+
+For the primary forecasting task, sales across these eight categories are aggregated into a single **total daily sales** variable. This approach captures overall pharmacy demand while preserving the underlying therapeutic structure for exploratory analysis and interpretation.
+
+A more granular, category-level analysis and forecasting of individual drug groups is intentionally deferred and will be addressed separately in **Part 2** of this study.
+
+\newpage
+# **2 - Methods and Analysis**
+
+## **2.1- Data Preparation and Cleaning**
+
+Data cleaning and exploratory analysis were performed using the tidyverse ecosystem in R (Wickham et al., 2019).
+
+The analysis was conducted using the daily pharmaceutical sales dataset. Initial data preparation focused on ensuring consistency, correctness, and suitability for time series modeling.
+
+load data and libraries
+
+```{r Load libraries, echo=FALSE, message=FALSE, warning=FALSE}
+##########################################################
+# part 1:Download Data sets and load them 
+##########################################################
+
+# Note: this process could take a couple of minutes
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(tidyr)) install.packages("tidyr", repos = "http://cran.us.r-project.org")
+if(!require(ggplot2)) install.packages("ggplot2", repos = "http://cran.us.r-project.org")
+if(!require(dplyr)) install.packages("dplyr", repos = "http://cran.us.r-project.org")
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+if(!require(glmnet)) install.packages("glmnet", repos = "http://cran.us.r-project.org")
+if(!require(forecast)) install.packages("forecast", repos = "http://cran.us.r-project.org")
+if(!require(prophet)) install.packages("prophet", repos = "http://cran.us.r-project.org")
+if(!require(zoo)) install.packages("zoo", repos = "http://cran.us.r-project.org")
+if(!require(tseries)) install.packages("tseries", repos = "http://cran.us.r-project.org")
+
+# Load necessary packages
+library(tidyverse)
+library(tidyr)
+library(caret)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(glmnet)
+library(forecast)
+library(prophet)
+library(zoo)
+library(tseries)
+library(knitr)
+
+# Download and load salesdaily dataset 
+
+# 1. Define URL
+url_salesdaily <- "https://raw.githubusercontent.com/ahmedm3laa/pharma-sales-ml-project/main/raw_data/salesdaily.csv"
+
+# 2. Create local data folder if it doesn't exist
+dest_dir <- "data"
+if (!dir.exists(dest_dir)) dir.create(dest_dir, recursive = TRUE)
+
+# 3. Download file
+destfile <- file.path(dest_dir, "salesdaily.csv")
+download.file(url_salesdaily, destfile, mode = "wb")
+
+# 4. Load dataset
+salesdaily <- read.csv(destfile)
+
+```
+
+Key preprocessing steps included:
+
+-   **Removal of irrelevant or incorrect columns** generated during data collection
+
+    (e.g., redundant time fields).
+
+-   **Construction of a proper date variable** to enable time-based analysis.
+
+-   **Feature engineering**, including:
+
+    -   Calendar features: year, month, and weekday
+
+    -   A total daily sales variable (t_sales) calculated as the sum of sales across all drug categories
+
+-   **Identification of zero-sales days**, which were interpreted as pharmacy closure days and encoded using a binary indicator variable (is_closed).
+
+These steps ensured that the dataset accurately reflected operational behavior and was suitable for both statistical and machine learning models.
+
+```{r Data Preparation, echo=FALSE, message=FALSE, warning=FALSE}
+###############################################################################
+#part 2 :Preparing the Data 
+############################################################################### 
+
+#Step 1 — Remove Wrong Columns
+# Remove incorrect Kaggle-generated columns
+
+cols_to_remove <- c("Month", "Hour", "Weekday.Name")
+salesdaily <- salesdaily %>% select(-any_of(cols_to_remove))
+
+# Create proper date column
+salesdaily <- salesdaily %>%
+  mutate(
+    Date = as.Date(datum, format = "%m/%d/%Y"),
+    Year = year(Date),
+    Month = month(Date),
+    Weekday = weekdays(Date),
+    t_sales = M01AB + M01AE + N02BA + N02BE + N05B + N05C + R03 + R06
+  )
+
+
+
+#step 2 :Create model data 
+model_data <- salesdaily %>%
+  select(
+    Date,
+    Month,
+    Weekday,
+    t_sales
+  )
+
+model_data$Weekday <- as.factor(model_data$Weekday)
+
+#Treat zeros as closed days
+model_data <- model_data %>%
+  mutate(is_closed = ifelse(t_sales == 0, 1, 0))
+
+```
+
+\newpage
+## **2.2 - Exploratory Data Analysis (EDA)**
+
+Exploratory analysis was performed to understand sales dynamics, seasonal patterns, and variability across time.
+
+### A-Sales Trends and Seasonality
+
+
+#### **1- Daily Total Pharmaceutical Sales**
+
+
+```{r daily sales,fig.align="center", out.width="75%",fig.width=7, fig.height=4, echo=FALSE, message=FALSE, warning=FALSE}
+#1. Daily Total Pharmaceutical Sales
+
+ggplot(salesdaily, aes(Date, t_sales)) +
+  geom_line() +
+  labs(title = "Daily Total Pharmaceutical Sales",
+       x="Date",
+       y="Total Daily Sales in $")+
+  theme(
+    plot.margin = margin(10, 20, 10, 20)
+  )
+#It looks stationary no trends but seasonality but the daily sales are to sticky 
+#in the plot so i will aggregate to monthly level for better visualization 
+
+```
+
+**Daily sales plots** revealed high short-term volatility, making it difficult to identify long-term patterns.
+
+
+#### **2 - Monthly Total Pharmaceutical Sales**
+
+
+```{r monthly sales ,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+monthly_sales <- salesdaily %>%
+  mutate(YearMonth = floor_date(Date, "month")) %>%
+  group_by(YearMonth) %>%
+  summarize(
+    M01AB = sum(M01AB, na.rm = TRUE),
+    M01AE = sum(M01AE, na.rm = TRUE),
+    N02BA = sum(N02BA, na.rm = TRUE),
+    N02BE = sum(N02BE, na.rm = TRUE),
+    N05B  = sum(N05B,  na.rm = TRUE),
+    N05C  = sum(N05C,  na.rm = TRUE),
+    R03   = sum(R03,   na.rm = TRUE),
+    R06   = sum(R06,   na.rm = TRUE),
+    t_sales = sum(
+      M01AB + M01AE + N02BA + N02BE +
+        N05B  + N05C  + R03   + R06,
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  )
+
+```
+
+
+
+```{r total monthly sales,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+#2. Monthly Total Pharmaceutical Sales
+
+ggplot(monthly_sales, aes(YearMonth, t_sales)) +
+  geom_line() +
+  labs(title = "Monthly Total Pharmaceutical Sales",
+       x="Date",
+       y="Total Monthly Sales in $")+
+  theme(
+    plot.margin = margin(10, 20, 10, 20)
+  )
+```
+
+
+
+To improve interpretability, sales were **aggregated to a monthly level**, revealing clear seasonal effects:
+
+-   Sales tend to **decline during summer months (June--August)**
+
+-   Higher demand is observed in **late autumn and winter (October--January)**
+
+### 
+
+### **B - Drug Category Behavior**
+
+
+#### **1-Monthly Sales by Drug Category**
+
+
+```{r monthly long, echo=FALSE, message=FALSE, warning=FALSE}
+# Convert drug categories to long format
+monthly_long <- monthly_sales %>%
+  pivot_longer(
+    cols = c(M01AB, M01AE, N02BA, N02BE, N05B, N05C, R03, R06,t_sales),
+    names_to = "Drug",
+    values_to = "Sales"
+  )
+
+```
+
+
+
+
+```{r drugs monthly sales,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+#plot 
+ggplot(monthly_long, aes(x = YearMonth, y = Sales, color = Drug)) +
+  geom_line(linewidth = 0.8) +   # Drug categories (thin colored lines)
+  scale_color_manual(values = c(
+    "M01AB" = "orange", #Anti-inflammatory(Acetic acid derivatives)
+    "M01AE" = "red",  #Anti-inflammatory(Propionic acid derivatives)
+    "N02BA" = "blue",  #Other analgesics and antipyretics, Salicylic acid and derivatives
+    "N02BE" = "green", #Other analgesics and antipyretics, Pyrazolones and Anilides
+    "N05B"  = "brown", #Psycholeptics drugs, (Anxiolytic drugs)
+    "N05C"  = "purple",#Psycholeptics drugs, (Hypnotics and sedatives drugs)  
+    "R03"   = "yellow", #Drugs for obstructive airway diseases 
+    "R06"   = "grey" , #Antihistamines for systemic use
+    "t_sales"="black"   # Total sales
+  )) +
+  labs(
+    title = "Monthly Sales by Drug Category & Total Sales",
+    x = "Date",
+    y = "Sales",
+    color = "Legend"
+  ) +
+  theme_minimal()+
+  theme(
+    plot.margin = margin(10, 20, 10, 20),
+    legend.position = "bottom"
+  )
+
+```
+
+Monthly sales by drug category were visualized to assess whether individual categories exhibited distinct trends. While categories showed varying magnitudes and volatility, their **aggregate behavior closely followed total sales**, justifying the focus on total sales for forecasting.
+
+\newpage
+### **C -Distribution and Calendar Effects**
+
+
+#### **1 - Distribution of daily sales**
+
+```{r histogram daily sales,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+#4. Distribution of daily sales
+
+ggplot(model_data, aes(t_sales)) +
+  geom_histogram(bins = 40)+
+  theme(
+    plot.margin = margin(10, 20, 10, 20)
+  )
+
+#Daily sales are right skewed with the mean 60.5 $ 
+```
+
+
+Daily total sales were **right-skewed**, indicating occasional high-demand days.
+
+
+#### **2 - Weekly seasonality**
+
+
+```{r box weekly sales,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+#5. Weekly seasonality
+
+ggplot(model_data, aes(Weekday, t_sales)) +
+  geom_boxplot()+
+  theme(
+    plot.margin = margin(10, 20, 10, 20)
+  )
+#Daily Sales vary a little bit across the weekdays .    
+#Sunday Sundays showed lower median sales with higher variability
+#may be because the "Weekend effect" likely reflecting reduced operating hours 
+#or demand patterns
+```
+
+#### 
+
+**Weekly seasonality** was observed through boxplots:
+
+-   Sales variability differed across weekdays
+
+-   **Sundays** showed **lower median** sales with higher variability, likely reflecting **reduced operating hours or demand patterns**
+
+\newpage
+#### **3- Monthly Seasonality**
+
+ 
+```{r box monthly sales,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+#6. Monthly pattern
+
+ggplot(salesdaily, aes(factor(Month), t_sales)) +
+  geom_boxplot()+
+  theme(
+    plot.margin = margin(10, 20, 10, 20)
+  )
+
+```
+
+
+#### **4- Annual Seasonality**
+
+
+```{r box annually sales,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+#7. yearly pattern
+ggplot(salesdaily, aes(factor(Year), t_sales)) +
+  geom_boxplot()+
+  theme(
+    plot.margin = margin(10, 20, 10, 20)
+  )
+
+#Yearly Sales has the Lowest mean in 2017 
+
+```
+
+
+moderate **annual seasonality**
+
+
+### 
+
+\newpage
+### **D - Autocorrelation Analysis**
+
+#### 
+
+#### **1- Autocorrelation (ACF)**
+
+```{r acf,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+acf(model_data$t_sales, na.action = na.pass)
+
+```
+
+
+
+#### **2- partial autocorrelation (PACF)**
+
+```{r pcaf,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+pacf(model_data$t_sales, na.action = na.pass)
+
+```
+
+
+#### 
+
+Autocorrelation (ACF) and partial autocorrelation (PACF) plots indicated:
+
+-   Strong correlations at **weekly lags (7, 14, 21 days)**
+
+-   Evidence that current sales depend on recent past values
+
+**These findings motivated the use of lag-based features and time series models.**
+
+### **E - Stationarity Testing**
+
+Before fitting time series models, formal stationarity tests were applied:
+
+#### **1 - ADF test (Augmented Dickey--Fuller)**
+
+```{r adf, echo=FALSE, message=FALSE, warning=FALSE}
+#1-ADF test (Augmented Dickey–Fuller)
+adf.test(model_data$t_sales, alternative = "stationary")
+
+#p-value =0.01
+#p-value < 0.05 ---reject H0 --- stationary
+```
+
+#### 
+
+#### **2- KPSS test**
+
+```{r kpss, echo=FALSE, message=FALSE, warning=FALSE}
+#2-KPSS test
+kpss.test(model_data$t_sales)
+
+#p-value = 0.06151
+#p-value ≥ 0.05 ---- fail to reject ---- stationary
+```
+
+Both tests supported the conclusion that the sales series is **stationary**, allowing models to be fitted without differencing.
+
+Autocorrelation and stationarity were assessed using ACF, PACF, and unit root tests as implemented in the forecast package *(Hyndman & Khandakar, 2008).*
+
+**2.3 - Modeling Approach**
+
+To capture different aspects of the data, multiple modeling techniques were applied. These models range from machine learning approaches to classical time series methods.
+
+### **A- Elastic Net Regression with Lag Features**
+
+Elastic Net regression was used as a **machine learning baseline model** incorporating both autoregressive behavior and calendar effects.
+
+Features included:
+
+-   Lagged sales values (1, 7, 14, 21, 30, and 60 days)
+
+-   Rolling averages (7-day and 30-day)
+
+-   Calendar variables (weekday, month)
+
+-   Closure indicator (`is_closed`)
+
+Elastic Net combines **L1 and L2 regularization**, allowing it to:
+
+-   Handle multicollinearity among lag features
+
+-   Perform implicit feature selection
+
+-   Maintain interpretability
+
+This model performed well for short-term forecasting and **served as a strong benchmark** *(Friedman et al., 2010).*
+
+```{r  Elastic Net, echo=FALSE, message=FALSE, warning=FALSE}
+#model 1 (Elastic Net model+Lag)
+
+#step1 :  Add lag features correctly 
+
+enet_model <- model_data %>%
+  arrange(Date) %>%
+  mutate(
+    lag_1  = lag(t_sales, 1),
+    lag_7  = lag(t_sales, 7),
+    lag_14 = lag(t_sales, 14),
+    lag_21 = lag(t_sales, 21),
+    lag_30 = lag(t_sales, 30),
+    lag_60 = lag(t_sales, 60),
+    roll_7  = zoo::rollmean(t_sales, 7, fill = NA, align = "right"),
+    roll_30 = zoo::rollmean(t_sales, 30, fill = NA, align = "right")
+  )
+
+
+#step 2 : Re-split and clean
+train <- enet_model %>% filter(year(Date) >= 2014 & year(Date) <= 2018)
+test  <- enet_model %>% filter(year(Date) == 2019)
+
+train_x <- train %>% 
+  select(
+    Date,
+    t_sales,
+    Weekday,
+    Month,
+    is_closed,
+    starts_with("lag_"),
+    starts_with("roll_")
+  )%>%na.omit()
+
+test_x <- test %>% 
+  select(
+    Date,
+    t_sales,
+    Weekday,
+    Month,
+    is_closed,
+    starts_with("lag_"),
+    starts_with("roll_")
+  )%>%na.omit()
+
+
+#step 3 : train Elastic Net
+set.seed(1)
+
+x_train <- model.matrix(t_sales ~ ., train_x)[, -1]
+y_train <- train_x$t_sales
+
+x_test <- model.matrix(t_sales ~ ., test_x)[, -1]
+y_test <- test_x$t_sales
+
+cv_fit <- cv.glmnet(
+  x_train,
+  y_train,
+  alpha = 0.5   # Elastic Net
+)
+
+#step 4 : predict
+pred1 <- as.numeric(predict(cv_fit, x_test, s = "lambda.min"))
+
+#step 5 : Make Elastic Net predictions as table 
+ElasticNet_res <- tibble(Date=test_x$Date,
+                  Actual= y_test,
+                  ElasticNet=as.numeric(pred1))
+
+```
+
+#### 
+
+
+**1- Elastic Net predictions VS Actual data**
+
+```{r Elastic Net plot,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE }
+#step 6 : Plotting 
+#Plot Elastic Net predictions VS Actual data
+
+ggplot(ElasticNet_res, aes(x = Date)) +
+  geom_line(aes(y = Actual), color = "grey", size = 0.8) +
+  geom_line(aes(y = ElasticNet), color = "orange") +
+  labs(title = "Elastic Net: Actual vs Predicted",
+       y = "Sales in $", x = "Date (2019)") +
+  theme_minimal()+
+  theme(
+    plot.margin = margin(10, 20, 10, 20)
+  )
+
+
+
+```
+
+
+#### **2- Elastic Net predictions Residuals**
+
+
+```{r Elastic Net residuals,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+#Plot Elastic Net predictions Residuals
+
+residuals_enet <- ElasticNet_res$Actual - ElasticNet_res$ElasticNet
+
+
+#1-Histogram (Residual distribution)
+
+ggplot(ElasticNet_res, aes(x = Actual - ElasticNet)) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black") +
+  labs(title = "Elastic Net Residuals Distribution", x = "Residual", y = "Count") +
+  theme_minimal()+
+  theme(
+    plot.margin = margin(10, 20, 10, 20)
+  )
+
+```
+
+
+### **B - ARIMA (Autoregressive Integrated Moving Average)**
+
+A plain ARIMA model was fitted using only the historical sales series. While ARIMA captured temporal dependence, its performance was limited due to the absence of external explanatory variables.
+
+This model served primarily as a **baseline time series comparator**.
+
+```{r Arima, echo=FALSE, message=FALSE, warning=FALSE}
+#model 2 (ARIMA)
+
+#step 1:  Train on raw t_sales only
+ts_train <- ts(train$t_sales, frequency = 7)
+fit_arima <- auto.arima(ts_train, seasonal = TRUE)
+
+#step 2 : Forecast test period
+
+h <- nrow(test)
+pred_arima <- forecast(fit_arima, h = h)$mean
+
+#step 3 : Make ARIMA predictions as table 
+Arima_res <- tibble(Date=test$Date,
+                    ARIMA=as.numeric(pred_arima))
+
+```
+
+
+#### **1 - ARIMA predictions VS Actual data**
+
+```{r Arima plot,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+#step 4 : plotting 
+#Plot ARIMA predictions VS Actual data
+
+ggplot(Arima_res, aes(x = Date)) +
+  geom_line(aes(y = test$t_sales), color = "grey", linewidth = 0.8) +
+  geom_line(aes(y = ARIMA), color = "purple") +
+  labs(title = "ARIMA: Actual vs Predicted",
+       y = "Sales in $", x = "Date (2019)") +
+  theme_minimal()+
+  theme(
+    plot.margin = margin(10, 20, 10, 20)
+  )
+
+#ARIMA alone without regressors Shows bad prediction of Sales
+```
+
+**ARIMA alone without regressors Shows bad prediction of Sales**
+
+#### 
+
+**2- ARIMA predictions Residuals**
+
+```{r arima residuals,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+
+#Plot ARIMA predictions Residuals
+
+residuals_arima <- test$t_sales - Arima_res$ARIMA
+
+
+#1-Histogram (Residual distribution)
+
+ggplot(Arima_res, aes(x = residuals_arima)) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black") +
+  labs(title = "Plain ARIMA Residuals Distribution", x = "Residual", y = "Count") +
+  theme_minimal()+
+  theme(
+    plot.margin = margin(10, 20, 10, 20)
+  )
+```
+
+### 
+\newpage
+**C - ARIMAX (ARIMA with Exogenous Variables)**
+
+To improve upon ARIMA, an ARIMAX model was fitted by incorporating:
+
+-   Weekday
+
+-   Month
+
+-   Pharmacy closure indicator
+
+Including these exogenous variables improved forecast accuracy by allowing the model to account for calendar-driven demand changes *(Hyndman & Khandakar, 2008).*
+
+```{r arimax, echo=FALSE, message=FALSE, warning=FALSE}
+#model 3 (ARIMAX)
+
+#Step 1: Prepare ARIMAX regressors
+
+# Filter necessary columns
+train_arimax <- train %>% select(t_sales, Weekday, Month, is_closed)
+test_arimax  <- test  %>% select(t_sales, Weekday, Month, is_closed)
+
+# Create model matrices for ARIMAX
+xreg_train <- model.matrix(~ Weekday + Month + is_closed, train_arimax)[, -1]
+xreg_test  <- model.matrix(~ Weekday + Month + is_closed, test_arimax)[, -1]
+
+#Step 2: Fit ARIMAX
+
+fit_arimax <- auto.arima(
+  ts(train_arimax$t_sales, frequency = 7),  # Weekly frequency
+  xreg = xreg_train,
+  seasonal = TRUE
+)
+
+#Step 3: Predict on test / future data
+pred_arimax <- forecast(fit_arimax, xreg = xreg_test)$mean
+
+
+
+#step 4 : Make ARIMAx predictions as table 
+Arimax_res <- tibble(Date=test$Date,
+                     ARIMAX=as.numeric(pred_arimax))
+```
+
+#### 
+
+**1 - ARIMAX predictions VS Actual data**
+
+```{r arimax plot,fig.width=12, fig.height=6,fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+
+#Plot ARIMAX predictions VS Actual data
+
+ggplot(Arimax_res, aes(x = Date)) +
+  geom_line(aes(y = test$t_sales), color = "grey", size = 0.8) +
+  geom_line(aes(y = ARIMAX), color = "red") +
+  labs(title = "ARIMAX: Actual vs Predicted",
+       y = "Sales in $", x = "Date (2019)") +
+  theme_minimal()+
+  theme(
+    plot.margin = margin(10, 20, 10, 20)
+  )
+  
+#adding regressors improve the ARIMA Model sales prediction
+
+```
+
+#### **2 - ARIMAX predictions Residuals**
+
+```{r arimax res,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+#Plot ARIMAX predictions Residuals
+
+residuals_arimax <- test$t_sales - Arimax_res$ARIMAX
+
+
+#1-Histogram (Residual distribution)
+
+ggplot(Arimax_res, aes(x = residuals_arimax)) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black") +
+  labs(title = "ARIMAX Residuals Distribution", x = "Residual", y = "Count") +
+  theme_minimal()+
+  theme(
+    plot.margin = margin(10, 20, 10, 20)
+  )
+
+```
+
+\newpage
+### **D - Prophet Model with Regressors**
+
+Facebook's Prophet model was used as a more advanced forecasting approach *(Taylor & Letham, 2018).*
+
+Prophet is well-suited for business time series due to its ability to model:
+
+-   Weekly seasonality
+
+-   Yearly seasonality
+
+-   Holiday and event effects
+
+The `is_closed` variable was included as an external regressor, enabling the model to explicitly account for non-operational days.
+
+```{r prophet, echo=FALSE, message=FALSE, warning=FALSE}
+
+#model 4 (Prophet)
+
+#step 1 : Build prophet_train including is_closed
+
+prophet_train <- data.frame(
+  ds = train$Date,
+  y  = train$t_sales,
+  is_closed = train$is_closed
+)
+
+#step 2 : fit the model 
+m <- prophet(
+  daily.seasonality  = FALSE,
+  weekly.seasonality = TRUE,
+  yearly.seasonality = TRUE
+)
+
+m <- add_regressor(
+  m,
+  name = "is_closed",
+  standardize = FALSE
+)
+
+m <- fit.prophet(m, prophet_train)
+
+
+future <- data.frame(ds = test$Date,
+                     is_closed = test$is_closed)
+
+#step 3 : forecast on test set  
+
+pred_prophet <- predict(m, future)$yhat
+
+#step 4 : Make prophet predictions as table 
+prophet_res <- tibble(Date=test$Date,
+                      Prophet=as.numeric(pred_prophet))
+
+```
+
+#### **1 - Prophet predictions VS Actual data**
+
+```{r prophet plot,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+#step 5 :plotting 
+
+#Plot Prophet predictions VS Actual data
+
+ggplot(prophet_res, aes(x = Date)) +
+  geom_line(aes(y = test$t_sales), color = "grey", size = 0.8) +
+  geom_line(aes(y = Prophet), color = "blue") +
+  labs(title = "Prophet: Actual vs Predicted",
+       y = "Sales in $", x = "Date (2019)") +
+  theme_minimal()+
+  theme(
+    plot.margin = margin(10, 20, 10, 20)
+  )
+
+```
+
+\newpage
+**2 - Prophet predictions Residuals**
+
+```{r prophet plot residuals,fig.width=7, fig.height=4, fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+#Plot Prophet predictions Residuals
+
+residuals_prophet <- test$t_sales - prophet_res$Prophet
+
+
+#1-Histogram (Residual distribution)
+
+ggplot(prophet_res, aes(x = residuals_prophet)) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black") +
+  labs(title = "Prophet Residuals Distribution", x = "Residual", y = "Count") +
+  theme_minimal()+
+  theme(
+    plot.margin = margin(10, 20, 10, 20)
+  )
+```
+
+### **E - Ensemble Forecasting**
+
+Finally, an **ensemble forecast** was created by averaging predictions from the ARIMAX and Prophet models (Hyndman & Khandakar, 2008).
+
+The rationale behind this approach was to:
+
+-   Reduce model-specific bias
+
+-   Improve robustness for long-term forecasting
+
+-   Balance statistical and decomposition-based modeling strengths
+
+```{r ensemble, echo=FALSE, message=FALSE, warning=FALSE}
+
+#Make a Final results Table for the predictions of all models 
+
+final_results <- ElasticNet_res %>%
+  inner_join(Arima_res,  by = "Date") %>%
+  inner_join(Arimax_res, by = "Date") %>%
+  inner_join(prophet_res, by = "Date")
+
+#make ensemble column for the mean of ARIMAX & Prophet data 
+final_results$Ensemble <- (final_results$ARIMAX+final_results$Prophet)/2
+```
+
+## **2.4 - Evaluation Strategy**
+
+Model performance was evaluated using a **holdout test set (2019)** and compared using:
+
+-   Root Mean Squared Error (RMSE)
+
+-   Mean Absolute Error (MAE)
+
+-   Mean Absolute Percentage Error (MAPE)
+
+Visual diagnostics, including predicted vs. actual plots and residual analysis, were also used to assess model behavior and stability.
+
+```{r functions, echo=FALSE, message=FALSE, warning=FALSE}
+
+#Functions to detect the accuracy 
+
+#1-RMSE (Root Mean Square Error)
+RMSE <- function(actual, pred) {
+  sqrt(mean((actual - pred)^2))
+}
+
+#2-MAE (Mean Absolute Error)
+
+MAE <- function(actual, pred) {
+  mean(abs(actual - pred))
+}
+
+
+#3-MAPE (Mean Absolute Percentage Error)
+
+MAPE <- function(actual, pred) {
+  idx <- actual != 0
+  mean(abs((actual[idx] - pred[idx]) / actual[idx])) * 100
+}
+
+
+```
+
+\newpage
+# **3 - Results**
+
+This section presents the forecasting performance of the different models applied to daily pharmaceutical sales data. Model accuracy was evaluated using **Root Mean Squared Error (RMSE)**, **Mean Absolute Error (MAE)**, and **Mean Absolute Percentage Error (MAPE)** on the 2019 test period. Lower values indicate better predictive performance.
+
+## **3.1 - Model Performance Comparison**
+
+```{r 2019 Predictions, echo=FALSE, message=FALSE, warning=FALSE}
+
+kable(head(final_results) , caption = "2019 Predictions (head)" )
+```
+
+**Metrics**
+
+```{r metrics, echo=FALSE, message=FALSE, warning=FALSE}
+#Compute metrics for all models
+
+metrics <- tibble(
+  Model = c("Elastic Net", "ARIMA", "ARIMAX", "Prophet","Ensemble"),
+  
+  RMSE = c(
+    RMSE(final_results$Actual, final_results$ElasticNet),
+    RMSE(final_results$Actual, final_results$ARIMA),
+    RMSE(final_results$Actual, final_results$ARIMAX),
+    RMSE(final_results$Actual, final_results$Prophet),
+    RMSE(final_results$Actual, final_results$Ensemble)
+  ),
+  
+  MAE = c(
+    MAE(final_results$Actual, final_results$ElasticNet),
+    MAE(final_results$Actual, final_results$ARIMA),
+    MAE(final_results$Actual, final_results$ARIMAX),
+    MAE(final_results$Actual, final_results$Prophet),
+    MAE(final_results$Actual, final_results$Ensemble)
+  ),
+  
+  MAPE = c(
+    MAPE(final_results$Actual, final_results$ElasticNet),
+    MAPE(final_results$Actual, final_results$ARIMA),
+    MAPE(final_results$Actual, final_results$ARIMAX),
+    MAPE(final_results$Actual, final_results$Prophet),
+    MAPE(final_results$Actual, final_results$Ensemble)
+  )
+)
+
+#Show the Matrics
+
+kable(metrics, caption = "Metrics")
+```
+
+Table (Metrics )summarizes the performance of all evaluated models.
+
+-   **Elastic Net with lagged features** achieved the best overall accuracy across all metrics.
+
+-   **Prophet with holiday (closure) effects** provided robust performance, particularly in capturing seasonal patterns and zero-sales days.
+
+-   **ARIMAX**, despite incorporating calendar-based regressors, showed limited improvement over the plain ARIMA model.
+
+-   **Plain ARIMA** performed worst, highlighting the importance of external information and nonlinear patterns.
+
+-   The **ensemble model**, defined as the average of ARIMAX and Prophet forecasts, produced moderate performance but did not outperform the best individual models.
+
+**Key findings:**
+
+-   Lag-based machine learning models outperform traditional time-series models for short-horizon forecasts.
+
+-   Calendar effects and closure information significantly improve forecast stability.
+
+-   Combining models does not always guarantee better accuracy, especially when individual model strengths overlap.
+
+## **3.2 - Visual Evaluation of Forecasts**
+
+```{r final results plot,fig.width=12, fig.height=6,fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+#Plot all predictions vs actual on one chart
+
+# Convert to long format for ggplot
+final_long <- final_results %>%
+  pivot_longer(
+    cols = c(Actual, ElasticNet, ARIMA, ARIMAX, Prophet,Ensemble),
+    names_to = "Model",
+    values_to = "Sales"
+  )
+
+# Plot with legend
+
+ggplot(final_long, aes(x = Date, y = Sales, color = Model)) +
+  geom_line(size = 0.8) +
+  scale_color_manual(values = c(
+    "Actual" = "grey",
+    "ElasticNet" = "orange",
+    "ARIMA" = "purple",
+    "ARIMAX" = "red",
+    "Prophet" = "blue",
+    "Ensemble" = "green"
+  )) +
+  labs(
+    title = "Actual vs Predictions: All Models",
+    x = "Date",
+    y = "Sales",
+    color = "Legend"
+  ) +
+  theme_minimal()+
+  theme(
+    plot.margin = margin(10, 20, 10, 20),
+    legend.position = "bottom"
+  )
+
+```
+
+Visual inspection of forecast plots confirms the quantitative results:
+
+-   Elastic Net predictions closely track actual sales, with smaller deviations during high-volatility periods.
+
+-   Prophet captures seasonal trends effectively but smooths short-term fluctuations.
+
+-   ARIMA and ARIMAX models struggle to adapt to sudden changes and zero-sales days.
+
+-   The ensemble forecast reduces extreme errors but inherits weaknesses from both base models.
+
+-   Residual plots further indicate:
+
+-   No strong remaining trend in Elastic Net residuals
+
+-   Higher variance and clustering in ARIMA-based residuals
+
+## **3.3 - Forecasting 2020 Sales**
+
+For forward-looking planning, **ARIMAX and Prophet models** were used to forecast sales from **November 2019 through December 2020**, incorporating known pharmacy closure days.
+
+```{r future 2020, echo=FALSE, message=FALSE, warning=FALSE}
+#first of all we want to forecast the 2020 year sales the models made for Long-Term forecasting 
+#here are 
+#1-ARIMAX
+#2-prophet 
+
+#but they need is_closure column in the dataset which based on the official holidays 
+#to find the closure days in 2020 we need to analyze the closure in the previous data 
+
+#step 1 :Create a clear holiday category structure
+
+previous_closure <- salesdaily[(salesdaily$t_sales==0),c("Date","Weekday","Month")]
+
+#after searching for the official holidays in Serbia (where the pharmacy data collected)
+
+#Matched 21 / 26 zero-sales days to official Serbian holidays
+
+
+previous_closure$Holiday <- c("Christmas Day", "Easter Day", "Labor holiday", "Saint Nicholas Day",
+                              "Western New Year's Day", "Christmas Day", "Easter Day", "Saint Nicholas Day",
+                              "Western New Year's Day", "Christmas Day", "Labor holiday", "Saint Nicholas Day",
+                              "", "Easter Day", "", "Saint Nicholas Day", "Western New Year's Day",
+                              "Christmas Day", "Easter Day", "", "", "Saint Nicholas Day", "Western New Year's Day",
+                              "Christmas Day", "", "Easter Day")
+
+
+
+#there are 5 days the pharmacy closed with unexplained closures 
+
+previous_closure$Holiday[previous_closure$Holiday == ""] <- "unexplained closures"
+
+
+############################################################################### 
+#step 2 : build the 2020 future dataset with the needed columns to run the ARIMAX & prophet models 
+
+
+#1- build holidays_2020 dataframe for the is_closed column
+
+holidays_2020 <- data.frame(
+  Date = as.Date(c("2019-12-19","2020-01-01", "2020-01-07", "2020-04-19", "2020-05-01",
+                   "2020-12-19")),
+  Holiday = c("Saint Nicholas Day","Western New Year's Day","Christmas Day", "Easter Day", "Labor holiday", "Saint Nicholas Day")
+)
+
+
+
+#2- Build 2020 future dataset
+future_2020 <- data.frame(
+  Date = seq.Date(from = as.Date("2019-11-01"), 
+                  to   = as.Date("2020-12-31"), 
+                  by   = "day")
+)
+
+#3- Add additional columns needed for ARIMAX/Prophet
+future_2020 <- future_2020 %>%
+  mutate(
+    Weekday = factor(weekdays(Date)),
+    Month   = as.numeric(format(Date, "%m")),
+    is_closed = ifelse(Date %in% as.Date(holidays_2020$Date), 1, 0)
+  )
+
+```
+
+**Daily Forecasts**
+
+```{r forecast run models, echo=FALSE, message=FALSE, warning=FALSE}
+############################################################################### 
+#step 3 : Run the Models 
+
+#1- Run ARIMAX Model 
+xreg_2020  <- model.matrix(~ Weekday + Month + is_closed, future_2020)[, -1]
+pred_arimax_2020 <- forecast(fit_arimax, xreg = xreg_2020)$mean
+
+
+
+#2-Run Prophet Model 
+
+p_2020 <- data.frame(ds = future_2020$Date,
+                     is_closed = future_2020$is_closed)
+
+
+pred_prophet_2020 <- predict(m, p_2020)$yhat
+
+
+############################################################################### 
+#step 4 : add model predictions to future 2020 dataframe 
+
+future_2020$f_arimax <- pred_arimax_2020
+
+future_2020$f_prophet <- pred_prophet_2020
+
+future_2020$ensemble <- (pred_arimax_2020+pred_prophet_2020)/2
+
+#Equal-weight ensemble chosen due to similar validation performance and lack of prior preference.
+
+kable(head(future_2020) , caption = "Daily Forecasts (head)")
+```
+
+**Plotting the Forecasting Results**
+
+```{r future 2020 plot,fig.width=12, fig.height=6,fig.align="center", out.width="75%", echo=FALSE, message=FALSE, warning=FALSE}
+############################################################################### 
+#step 5 :plot all 2020 predictions 
+
+# Convert future_2020 to long format for ggplot
+future_long <- future_2020 %>%
+  pivot_longer(
+    cols = c(f_prophet, f_arimax, ensemble),
+    names_to = "Model",
+    values_to = "Sales"
+  )
+
+# Convert 2019 actual sales to long format
+actual_2019_long <- test %>%
+  select(Date, t_sales) %>%
+  mutate(Model = "Actual_2019", Sales = t_sales) %>%
+  select(Date, Model, Sales)
+
+# Combine with 2020 predictions
+plot_data <- bind_rows(future_long, actual_2019_long)
+
+#Plot  the Forecasted Daily Sales 
+ggplot(plot_data, aes(x = Date, y = Sales, color = Model)) +
+  geom_line(size = 0.8,alpha = 0.6) +
+  scale_color_manual(values = c(
+    "ensemble" = "green",
+    "f_arimax" = "red",
+    "f_prophet" = "blue",
+    "Actual_2019" = "grey"
+  )) +
+   geom_vline(
+    xintercept = as.Date("2019-11-01"),
+    linetype = "dashed",
+    color = "black"
+  ) +
+  labs(
+    title = "Forecasted 2020 Sales with 2019 Actuals",
+    x = "Date",
+    y = "Sales",
+    color = "Legend"
+  ) +
+  annotate(
+  "text",
+  x = as.Date("2019-11-01"),
+  y = max(plot_data$Sales, na.rm = TRUE),
+  label = "Forecast start",
+  vjust = -0.5,
+  hjust = 0,
+  size = 3
+ )+
+  theme_minimal()+
+  theme(
+    plot.margin = margin(10, 20, 10, 20),
+    legend.position = "bottom"
+  )
+
+
+```
+
+To support business decision-making:
+
+-   Daily forecasts were aggregated into **weekly and monthly sales plans**
+
+-   Monthly forecasts were rounded for operational usability
+
+Ensemble forecasts were included to provide a balanced planning reference
+
+**Monthly sales Plan**
+
+```{r monthly forecast, echo=FALSE, message=FALSE, warning=FALSE}
+############################################################################### 
+#step 6 : Aggregate the forecasted sales data in Weekly and Monthly level to help in Purchasing Planning
+
+#1-Create The Monthly_forecast Dataset
+monthly_forecast <- future_2020 %>%
+  mutate(Year = year(Date), Month = month(Date)) %>%
+  group_by(Year, Month) %>%
+  summarize(
+    ARIMAX = sum(f_arimax),
+    Prophet = sum(f_prophet),
+    Ensemble = sum(ensemble),
+    .groups = "drop") %>%
+  tibble()
+
+
+#2-Round values 
+
+monthly_forecast <- monthly_forecast %>%
+  mutate(
+    across(
+      c(ARIMAX, Prophet, Ensemble),
+      \(x) round(x, 0)
+    )
+  )
+
+
+#3-Add Month name (more readable for business users)
+
+monthly_forecast <- monthly_forecast %>%
+  mutate(
+    Month_Name = month(
+      as.Date(paste(Year, Month, 1, sep = "-")),
+      label = TRUE,
+      abbr = TRUE
+    )
+  ) %>%
+  select(Year, Month_Name, everything())
+
+
+monthly_forecast <- monthly_forecast %>%
+  select(Year,Month_Name,Ensemble)%>%
+  rename(Planned_Sales = Ensemble,Month=Month_Name)%>%
+  arrange(Year, Month)
+
+
+kable(monthly_forecast, caption = "Monthly Sales Plans")
+```
+
+**Weekly sales Plan**
+
+```{r weekly forecast, echo=FALSE, message=FALSE, warning=FALSE}
+#4-Add Weekly aggregation 
+
+weekly_forecast <- future_2020 %>%
+  mutate(
+    Week_Start = floor_date(Date, unit = "week", week_start = 1)
+  ) %>%
+  group_by(Week_Start) %>%
+  summarize(
+    ARIMAX = sum(f_arimax),
+    Prophet = sum(f_prophet),
+    Ensemble = sum(ensemble),
+    .groups = "drop"
+  )
+
+# Round values 
+
+weekly_forecast <- weekly_forecast %>%
+  mutate(
+    across(
+      c(ARIMAX, Prophet, Ensemble),
+      \(x) round(x, 0)
+    )
+  )
+
+weekly_forecast <- weekly_forecast %>%
+  select(Week_Start,Ensemble)%>%
+  rename(Planned_Sales = Ensemble)%>%
+  arrange(Week_Start)
+
+kable(head(weekly_forecast), caption = "Weekly Sales Plans (head)")
+#Daily forecasts were aggregated to monthly and weekly levels to support inventory
+#planning and procurement decisions. An ensemble forecast was included to reduce
+#model-specific bias and improve robustness.
+
+
+```
+
+These aggregated forecasts enable:
+
+-   Inventory and procurement planning
+
+-   Seasonal demand anticipation
+
+-   Risk reduction through model diversification
+
+## **3.4 Summary of Results**
+
+-   **Best-performing model (short-term):** Elastic Net with lagged features
+
+-   **Best-performing model (long-term):** Prophet with closure effects
+
+-   **Weakest model:** Plain ARIMA
+
+-   **Recommended planning signal:** Prophet or ARIMAX--Prophet ensemble
+
+\newpage
+# **4 - Conclusion**
+
+This project analyzed daily pharmaceutical sales data and developed forecasting models to support sales planning and inventory decision-making. Using historical sales from 2014--2019, multiple time-series and machine learning approaches were evaluated to understand sales behavior and predict future demand.
+
+The exploratory analysis revealed **strong weekly and monthly seasonality**, with noticeable declines during summer months and increased sales toward the end of the year. Several zero-sales days were identified and treated as **store closure events**, which proved important for improving model accuracy. Aggregating data to the monthly level helped uncover clearer trends and supported better interpretation for business users.
+
+From a modeling perspective, **Elastic Net with lagged and rolling features achieved the best short-term predictive accuracy**, demonstrating the importance of historical dependency in daily sales. However, its reliance on past sales makes it less suitable for long-term forecasting. **Prophet**, enhanced with a store-closure regressor, provided more robust performance for longer horizons, while **ARIMAX** showed limited improvement due to weak explanatory power of calendar-based regressors alone. An **ensemble forecast** combining Prophet and ARIMAX was used to balance stability and interpretability.
+
+The final forecasts for **November 2019 through December 2020** were produced at daily, weekly, and monthly levels to support operational planning. Monthly and weekly aggregations were emphasized to assist purchasing and inventory management, where longer-term demand signals are more actionable than daily fluctuations.
+
+## **4.1 - Limitations**
+
+-   The models rely solely on historical sales and calendar effects, excluding external drivers such as promotions, pricing changes, epidemics, or economic conditions.
+
+-   Closure days in 2020 were inferred from historical patterns and public holidays, which may not fully capture unplanned closures.
+
+-   Forecasting was performed at the **total sales level**, potentially masking category-specific dynamics.
+
+## **4.2 - Future Work**
+
+Future extensions of this project will include:
+
+-   **Category-level forecasting** to capture heterogeneous demand patterns across drug classes
+
+-   Incorporation of **exogenous variables** such as promotions, weather, or epidemiological data
+
+-   Probabilistic forecasting and uncertainty intervals for risk-aware planning
+
+Overall, this analysis demonstrates that combining classical time-series methods with machine learning and domain-informed features can produce reliable forecasts that are both **accurate and operationally useful**.
+
+\newpage
+# **5 - References**
+
+1.  Zdravković, M. (2018). *Pharmaceutical Sales Data*. Kaggle.\
+
+    Available at: <https://www.kaggle.com/datasets/milanzdravkovic/pharma-sales-data>
+
+2.  Hyndman, R. J., & Khandakar, Y. (2008). *Automatic Time Series Forecasting: The forecast Package for R*. Journal of Statistical Software, 27(3), 1--22.
+
+3.  Friedman, J., Hastie, T., & Tibshirani, R. (2010). *Regularization Paths for Generalized Linear Models via Coordinate Descent*. Journal of Statistical Software, 33(1), 1--22.
+
+4.  Taylor, S. J., & Letham, B. (2018). *Forecasting at Scale*. The American Statistician, 72(1), 37--45.
+
+5.  Wickham, H., Averick, M., Bryan, J., et al. (2019). *Welcome to the tidyverse*. Journal of Open Source Software, 4(43), 1686.
