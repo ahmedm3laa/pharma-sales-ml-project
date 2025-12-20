@@ -103,7 +103,7 @@ Forecasts were generated at:
 
 The full analytical report (including methodology, results, and business insights) is available as a PDF:
 
-📎 [Download the full report](Reports/Pharmaceutical Sales Forecasting.pdf)
+📎 [Download the full report](https://raw.githubusercontent.com/ahmedm3laa/pharma-sales-ml-project/main/Reports/Pharmaceutical%20Sales%20Forecasting.pdf)
 
 
 # 🛠 Tools & Libraries
